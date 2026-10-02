@@ -1,0 +1,11 @@
+node_modules/
+backend/node_modules/
+backend/.git/
+backend/dist/
+backend/.sites-runtime/
+backend/.dev.vars
+backend/.env
+artifacts/
+test-results/
+playwright-report/
+*.tar.gz

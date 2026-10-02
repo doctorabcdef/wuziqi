@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f3ed" />
+    <meta name="description" content="一张始终在线的公共五子棋棋盘。跨设备继续棋局，为双方选择喜欢的棋子颜色。" />
+    <title>棋间 · 共享五子棋</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header class="site-header page-width">
+      <a class="brand" href="./" aria-label="棋间首页">
+        <svg class="brand-icon" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="11" fill="currentColor"/><circle cx="12" cy="12" r="4" fill="#f5f3ed"/><circle cx="24" cy="24" r="4" fill="#f5f3ed"/><path d="M23 8v8M19 12h8M11 20v8M7 24h8" stroke="#bdc2b8" stroke-width="1.5"/></svg>
+        <span>棋间<span class="brand-en">GOMOKU</span></span>
+      </a>
+      <div class="header-note"><span class="little-star" aria-hidden="true">✳</span> 一张棋盘，随处继续</div>
+      <div class="connection" id="connection" role="status"><span class="status-dot"></span><span id="connection-text">连接棋盘中</span></div>
+    </header>
+
+    <main class="page-width">
+      <section class="intro" aria-labelledby="page-title">
+        <div><p class="eyebrow"><span></span> THE SHARED BOARD</p><h1 id="page-title">在此，继续一局<span>。</span></h1><p class="intro-copy">不必从头开始。换一台设备，落子之处依然如初。</p></div>
+        <div class="round-tag"><span>当前棋局</span><strong id="round">—</strong><span>ROUND</span></div>
+      </section>
+
+      <div class="game-layout">
+        <section class="board-panel" aria-labelledby="board-heading">
+          <div class="board-topbar"><h2 id="board-heading"><span class="small-grid" aria-hidden="true">▦</span> 公共棋盘</h2><span class="board-size">15 × 15 <span>自由五子棋</span></span></div>
+          <div class="board-frame">
+            <div class="axis axis-horizontal" id="horizontal-axis" aria-hidden="true"></div>
+            <div class="axis axis-vertical" id="vertical-axis" aria-hidden="true"></div>
+            <div class="board" id="board" role="grid" aria-label="15 行 15 列五子棋棋盘，用方向键选择位置，回车或空格落子" aria-busy="true">
+              <svg class="board-lines" id="board-lines" viewBox="0 0 720 720" aria-hidden="true"></svg>
+              <div class="board-intersections" id="intersections" role="rowgroup"></div>
+              <div class="board-loading" id="board-loading"><span class="loading-ring"></span><span id="loading-text">正在读取棋局…</span></div>
+            </div>
+          </div>
+          <div class="board-bottom"><span><i class="last-move-key"></i> 橙点标记最后落子</span><span id="last-move">等待棋局</span></div>
+        </section>
+
+        <aside class="game-sidebar" aria-label="棋局控制">
+          <section class="turn-panel" aria-labelledby="turn-heading"><div class="section-label" id="turn-heading">棋局进行时</div><div class="turn-content"><span class="turn-stone stone" id="turn-stone" aria-hidden="true">Ⅰ</span><div><h2 id="turn-title">等候棋盘连接</h2><p id="turn-description">正在找回这一局</p></div></div><div class="game-stats"><div><span>已落子</span><strong id="move-count">—<small>手</small></strong></div><div><span>棋盘状态</span><strong id="game-status">同步中</strong></div></div></section>
+
+          <section class="colors-panel" aria-labelledby="colors-heading"><div class="section-heading"><h2 id="colors-heading">你的棋子，你的颜色</h2><span>CUSTOMIZE</span></div><p class="section-description">颜色随棋局同步，Ⅰ / Ⅱ 始终区分双方。</p>
+            <div class="player-card" id="player-card-1"><div class="player-top"><span class="player-stone stone" id="player-stone-1" aria-hidden="true">Ⅰ</span><div><h3>先手<span>PLAYER 01</span></h3><p>先落一子，静待回应</p></div><label class="custom-color" title="自定义先手棋子颜色"><input type="color" id="color-1" value="#222b38" aria-label="自定义先手棋子颜色" disabled /><span aria-hidden="true">↗</span></label></div><div class="color-options" id="color-options-1" aria-label="先手预设颜色"></div></div>
+            <div class="player-card" id="player-card-2"><div class="player-top"><span class="player-stone stone" id="player-stone-2" aria-hidden="true">Ⅱ</span><div><h3>后手<span>PLAYER 02</span></h3><p>你来我往，自有妙趣</p></div><label class="custom-color" title="自定义后手棋子颜色"><input type="color" id="color-2" value="#edf0f4" aria-label="自定义后手棋子颜色" disabled /><span aria-hidden="true">↗</span></label></div><div class="color-options" id="color-options-2" aria-label="后手预设颜色"></div></div>
+          </section>
+
+          <section class="actions-panel" aria-label="棋局操作"><button class="button button-primary" id="reset-button" disabled><span aria-hidden="true">↻</span> 重新开局</button><button class="button button-secondary" id="undo-button" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4-4 4 4 4M3 8h8a5 5 0 0 1 0 10"/></svg> 悔一步</button></section>
+          <div class="shared-notice"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 9v5M10 5.5v.5"/></svg><p><strong>这是所有人共用的棋盘</strong>打开此网页即可继续同一局。落子、配色、悔棋和重开会同步给所有访客。</p></div>
+          <div class="sync-footer"><span id="sync-detail">棋局保存在云端</span><button id="retry-button" class="text-button" hidden>重新连接</button></div>
+        </aside>
+      </div>
+
+      <div class="message" id="message" role="status" aria-live="polite" hidden></div>
+      <footer class="site-footer"><span>连成五子，即为胜局。<span class="footer-rule">先手无禁手，长连也算获胜。</span></span><span>慢慢想，好好下一局。</span></footer>
+    </main>
+
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description"><form method="dialog"><div class="dialog-symbol" aria-hidden="true">↻</div><h2 id="dialog-title">重新开始这一局？</h2><p id="dialog-description">当前棋盘将被清空，所有设备都会进入新的一局。双方颜色会保留。</p><div class="dialog-actions"><button class="button button-secondary" value="cancel" id="dialog-cancel">再想想</button><button class="button button-primary" value="confirm" id="dialog-confirm">确认重开</button></div></form></dialog>
+    <noscript><div class="noscript-message">请启用浏览器 JavaScript，以加载并同步公共棋局。</div></noscript>
+  </body>
+</html>

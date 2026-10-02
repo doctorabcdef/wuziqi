@@ -1,0 +1,13 @@
+{
+  "name": "wuziqi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "node --test backend/test/*.test.mjs",
+    "test:browser": "node scripts/browser-check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
