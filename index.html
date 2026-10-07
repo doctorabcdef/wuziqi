@@ -7,8 +7,8 @@
     <meta name="description" content="一张始终在线的公共五子棋棋盘。跨设备继续棋局，为双方选择喜欢的棋子颜色。" />
     <title>棋间 · 共享五子棋</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20261007-2" />
-    <script type="module" src="./app.js?v=20261007-2"></script>
+    <link rel="stylesheet" href="./styles.css?v=20261007-3" />
+    <script type="module" src="./app.js?v=20261007-3"></script>
   </head>
   <body>
     <header class="site-header page-width">
@@ -42,11 +42,11 @@
         </section>
 
         <aside class="game-sidebar" aria-label="棋局控制">
-          <section class="turn-panel" aria-labelledby="turn-heading"><div class="section-label" id="turn-heading">棋局进行时</div><div class="turn-content"><span class="turn-stone stone" id="turn-stone" aria-hidden="true">Ⅰ</span><div><h2 id="turn-title">等候棋盘连接</h2><p id="turn-description">正在找回这一局</p></div></div><div class="game-stats"><div><span>已落子</span><strong id="move-count">—<small>手</small></strong></div><div><span>棋盘状态</span><strong id="game-status">同步中</strong></div></div></section>
+          <section class="turn-panel" aria-labelledby="turn-heading"><div class="section-label" id="turn-heading">棋局进行时</div><div class="turn-content"><span class="turn-stone stone" id="turn-stone" aria-hidden="true"></span><div><h2 id="turn-title">等候棋盘连接</h2><p id="turn-description">正在找回这一局</p></div></div><div class="game-stats"><div><span>已落子</span><strong id="move-count">—<small>手</small></strong></div><div><span>棋盘状态</span><strong id="game-status">同步中</strong></div></div></section>
 
-          <section class="colors-panel" aria-labelledby="colors-heading"><div class="section-heading"><h2 id="colors-heading">你的棋子，你的颜色</h2><span>CUSTOMIZE</span></div><p class="section-description">颜色随棋局同步，Ⅰ / Ⅱ 始终区分双方。</p>
-            <div class="player-card" id="player-card-1"><div class="player-top"><span class="player-stone stone" id="player-stone-1" aria-hidden="true">Ⅰ</span><div><h3>先手<span>PLAYER 01</span></h3><p>先落一子，静待回应</p></div><label class="custom-color" title="自定义先手棋子颜色"><input type="color" id="color-1" value="#222b38" aria-label="自定义先手棋子颜色" disabled /><span aria-hidden="true">↗</span></label></div><div class="color-options" id="color-options-1" aria-label="先手预设颜色"></div></div>
-            <div class="player-card" id="player-card-2"><div class="player-top"><span class="player-stone stone" id="player-stone-2" aria-hidden="true">Ⅱ</span><div><h3>后手<span>PLAYER 02</span></h3><p>你来我往，自有妙趣</p></div><label class="custom-color" title="自定义后手棋子颜色"><input type="color" id="color-2" value="#edf0f4" aria-label="自定义后手棋子颜色" disabled /><span aria-hidden="true">↗</span></label></div><div class="color-options" id="color-options-2" aria-label="后手预设颜色"></div></div>
+          <section class="colors-panel" aria-labelledby="colors-heading"><div class="section-heading"><h2 id="colors-heading">你的棋子，你的颜色</h2><span>CUSTOMIZE</span></div><p class="section-description">选择喜欢的棋子颜色，随棋局同步。</p>
+            <div class="player-card" id="player-card-1"><div class="player-top"><span class="player-stone stone" id="player-stone-1" aria-hidden="true"></span><div><h3>先手<span>PLAYER 01</span></h3><p>先落一子，静待回应</p></div><label class="custom-color" title="自定义先手棋子颜色"><input type="color" id="color-1" value="#222b38" aria-label="自定义先手棋子颜色" disabled /><span aria-hidden="true">↗</span></label></div><div class="color-options" id="color-options-1" aria-label="先手预设颜色"></div></div>
+            <div class="player-card" id="player-card-2"><div class="player-top"><span class="player-stone stone" id="player-stone-2" aria-hidden="true"></span><div><h3>后手<span>PLAYER 02</span></h3><p>你来我往，自有妙趣</p></div><label class="custom-color" title="自定义后手棋子颜色"><input type="color" id="color-2" value="#edf0f4" aria-label="自定义后手棋子颜色" disabled /><span aria-hidden="true">↗</span></label></div><div class="color-options" id="color-options-2" aria-label="后手预设颜色"></div></div>
           </section>
 
           <section class="actions-panel" aria-label="棋局操作"><button class="button button-primary" id="reset-button" disabled><span aria-hidden="true">↻</span> 重新开局</button><button class="button button-secondary" id="undo-button" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4-4 4 4 4M3 8h8a5 5 0 0 1 0 10"/></svg> 悔一步</button></section>

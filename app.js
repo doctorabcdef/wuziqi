@@ -2,7 +2,6 @@ import { API_BASE } from './config.js?v=20261007-2';
 
 const API_URL = `${API_BASE.replace(/\/+$/, '')}/api/game`;
 const SIZE = 15;
-const SYMBOLS = ['', 'Ⅰ', 'Ⅱ'];
 const NAMES = ['', '先手', '后手'];
 const PRESETS = [
   ['#222b38', '墨黑'], ['#edf0f4', '月白'], ['#718169', '苔绿'],
@@ -115,7 +114,7 @@ function styleStone(element, player) {
   element.style.setProperty('--stone-color', color);
   element.style.setProperty('--stone-ink', ink);
   element.style.setProperty('--stone-border', ink === '#ffffff' ? '#17201e55' : '#7f887b66');
-  element.textContent = SYMBOLS[player];
+  element.textContent = '';
 }
 
 function validState(value) {
@@ -212,7 +211,7 @@ function renderState(view = previewState()) {
   $('turn-stone').hidden = Boolean(isDraw(view));
   $('turn-heading').textContent = isFinished(view) ? '这一局，已见分晓' : '棋局进行时';
   $('turn-title').textContent = view.winner ? `${NAMES[view.winner]}获胜` : isDraw(view) ? '和棋，也是好棋' : `轮到${NAMES[player]}落子`;
-  $('turn-description').textContent = view.winner ? `${SYMBOLS[view.winner]} 已连成五子 · 可以再来一局` : isDraw(view) ? '棋盘已满 · 再来一局吧' : `点击交叉点，落下第 ${view.moves.length + 1} 手`;
+  $('turn-description').textContent = view.winner ? `${NAMES[view.winner]}已连成五子 · 可以再来一局` : isDraw(view) ? '棋盘已满 · 再来一局吧' : `点击交叉点，落下第 ${view.moves.length + 1} 手`;
   $('game-status').textContent = view.winner ? '已有胜局' : isDraw(view) ? '和棋' : view.moves.length ? '对弈中' : '等待落子';
   const lastMove = view.moves.at(-1);
   $('last-move').textContent = lastMove ? `第 ${view.moves.length} 手 · ${NAMES[lastMove.player]} ${positionName(lastMove.x, lastMove.y)}` : '先手先行 · 从这里开始';
