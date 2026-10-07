@@ -1,4 +1,4 @@
-import { API_BASE } from './config.js';
+import { API_BASE } from './config.js?v=20261007-2';
 
 const API_URL = `${API_BASE.replace(/\/+$/, '')}/api/game`;
 const SIZE = 15;
@@ -23,7 +23,8 @@ let lastSync = null;
 let focusedCell = 112;
 let messageTimer;
 let pendingConfirmation = null;
-let pendingAction = null;
+let pendingActions = [];
+let reconciling = false;
 
 function buildBoard() {
   const coordinates = Array.from({ length: SIZE }, (_, i) => 24 + i * 48);
@@ -135,13 +136,35 @@ function applyState(nextState) {
   renderState();
 }
 
-// Keep speculative display separate from the authoritative revision and chess history.
+// Preview queued actions without changing the confirmed revision. Only one write is sent at a time.
 function previewState() {
-  if (!pendingAction || !state) return state;
-  const moves = pendingAction.type === 'move'
-    ? [...state.moves, { x: pendingAction.x, y: pendingAction.y, player: nextPlayer() }]
-    : pendingAction.type === 'undo' ? state.moves.slice(0, -1) : state.moves;
-  return { ...state, moves, winner: 0, line: [] };
+  if (!state || !pendingActions.length) return state;
+  const view = { ...state, moves: [...state.moves] };
+  for (const { action } of pendingActions) {
+    if (action.type === 'move') view.moves.push({ x: action.x, y: action.y, player: nextPlayer(view) });
+    else if (action.type === 'undo') view.moves.pop();
+  }
+  view.line = previewWin(view.moves);
+  view.winner = view.line.length ? view.moves[view.moves.length - 1].player : 0;
+  return view;
+}
+
+function previewWin(moves) {
+  const last = moves[moves.length - 1];
+  if (!last) return [];
+  const occupied = new Set(moves.filter(move => move.player === last.player).map(move => `${move.x},${move.y}`));
+  for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+    const line = [{ x: last.x, y: last.y }];
+    for (const sign of [-1, 1]) {
+      for (let n = 1; n < SIZE; n++) {
+        const x = last.x + n * dx * sign, y = last.y + n * dy * sign;
+        if (!occupied.has(`${x},${y}`)) break;
+        line.push({ x, y });
+      }
+    }
+    if (line.length >= 5) return line;
+  }
+  return [];
 }
 
 function renderState(view = previewState()) {
@@ -151,7 +174,8 @@ function renderState(view = previewState()) {
   cells.forEach((cell, index) => {
     const move = occupied.get(index);
     const previous = cell.dataset.move;
-    const isPending = pendingAction?.type === 'move' && move && move.index === view.moves.length - 1;
+    const confirmed = move && state.moves[move.index];
+    const isPending = move && (!confirmed || confirmed.x !== move.x || confirmed.y !== move.y || confirmed.player !== move.player);
     const signature = move ? `${Boolean(isPending)}:${move.player}:${move.index}:${view.colors[move.player - 1]}:${winning.has(index)}:${move.index === view.moves.length - 1}` : '';
     if (previous !== signature) {
       cell.replaceChildren();
@@ -198,26 +222,28 @@ function renderState(view = previewState()) {
 }
 
 function renderControls() {
-  const available = Boolean(state && connected && !saving);
-  const canPlay = available && !isFinished();
+  const view = previewState();
+  const available = Boolean(state && connected && !reconciling);
+  const idle = available && !saving;
+  const canPlay = available && !isFinished(view);
   board.dataset.canPlay = String(canPlay);
   board.setAttribute('aria-busy', String(!state || saving));
   for (const cell of cells) {
     cell.setAttribute('aria-disabled', String(!canPlay || cell.dataset.occupied === 'true'));
   }
-  $('reset-button').disabled = !available;
-  $('undo-button').disabled = !available || !state.moves.length;
-  $('dialog-confirm').disabled = !available;
+  $('reset-button').disabled = !idle;
+  $('undo-button').disabled = !available || !view.moves.length;
+  $('dialog-confirm').disabled = !idle;
   for (const player of [1, 2]) {
-    $(`color-${player}`).disabled = !available;
-    for (const option of $(`color-options-${player}`).children) option.disabled = !available;
+    $(`color-${player}`).disabled = !idle;
+    for (const option of $(`color-options-${player}`).children) option.disabled = !idle;
   }
   const mode = saving ? 'saving' : connected ? 'online' : refreshPromise ? 'connecting' : 'offline';
   $('connection').dataset.mode = mode;
   $('connection-text').textContent = mode === 'saving' ? '正在同步' : mode === 'online' ? '棋局已同步' : mode === 'connecting' ? '连接棋盘中' : '棋盘未连接';
   $('retry-button').hidden = connected || saving;
   $('retry-button').disabled = Boolean(refreshPromise);
-  $('sync-detail').textContent = saving ? '正在保存操作，请稍候…' : connected && lastSync
+  $('sync-detail').textContent = saving ? `还有 ${pendingActions.length} 个操作待同步 · 可以继续落子或悔棋` : connected && lastSync
     ? `已同步 ${lastSync.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })} · 自动保存`
     : state ? '连接中断 · 正在保留当前画面' : '棋局保存在云端';
   if (!state) {
@@ -282,52 +308,81 @@ function refresh({ manual = false, uncertain = false } = {}) {
   return refreshPromise;
 }
 
-async function submitAction(action, expectedRevision = state?.revision) {
-  if (!state || !connected || saving) return;
-  saving = true;
-  pendingAction = ['move', 'undo'].includes(action.type) ? action : null;
+function submitAction(action, expectedRevision = state?.revision) {
+  if (!state || !connected || reconciling) return;
+  const view = previewState();
+  if (action.type === 'move' && (isFinished(view) || view.moves.some(move => move.x === action.x && move.y === action.y))) return;
+  if (action.type === 'undo' && !view.moves.length) return;
+  if (!['move', 'undo'].includes(action.type) && saving) return;
+  pendingActions.push({ action, requestId: crypto.randomUUID(), expectedRevision });
   renderState();
+  void drainActions();
+}
+
+async function drainActions() {
+  if (saving || !pendingActions.length) return;
+  saving = true;
   renderControls();
-  const sequence = ++requestSequence;
   let uncertain = false;
   let needsRefresh = false;
   try {
-    const { response, body } = await requestJSON({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revision: expectedRevision, requestId: crypto.randomUUID(), action }),
-    });
-    pendingAction = null;
-    if (response.status === 409) {
-      applyState(body.state);
-      setHealth(true, sequence);
-      showMessage('棋局刚刚被其他设备更新，已为你刷新。请查看棋盘后重新操作。');
-    } else if (!response.ok) {
-      if (response.status >= 500) throw new Error(body.error || '保存结果未确认。');
-      setHealth(true, sequence);
-      showMessage(body.error || '这一步未能完成，请查看棋盘后重试。', 'error');
-      needsRefresh = true;
-    } else {
-      applyState(body.state);
-      setHealth(true, sequence);
-      if (action.type === 'reset') showMessage('新的一局开始了，双方颜色已保留。');
-      else if (action.type === 'undo') showMessage('已退回上一步，所有设备会同步更新。');
-      else if (action.type === 'color') showMessage(`${NAMES[action.player]}的新颜色已同步。`, 'info', 2500);
+    while (pendingActions.length) {
+      const entry = pendingActions[0];
+      const sequence = ++requestSequence;
+      try {
+        const { response, body } = await requestJSON({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            revision: entry.action.type === 'reset' ? entry.expectedRevision : state.revision,
+            requestId: entry.requestId,
+            action: entry.action,
+          }),
+        });
+        if (response.status === 409) {
+          pendingActions = [];
+          applyState(body.state);
+          setHealth(true, sequence);
+          showMessage('其他设备更新了棋局，尚未同步的操作已撤回。请查看棋盘后继续。');
+          break;
+        }
+        if (!response.ok) {
+          if (response.status >= 500) throw new Error(body.error || '保存结果未确认。');
+          pendingActions = [];
+          setHealth(true, sequence);
+          showMessage(body.error || '操作未保存，已撤回尚未同步的操作。', 'error');
+          needsRefresh = true;
+          break;
+        }
+        if (!validState(body.state)) throw new Error('服务器返回了无法读取的棋局。');
+        pendingActions.shift();
+        applyState(body.state);
+        setHealth(true, sequence);
+        if (entry.action.type === 'reset') showMessage('新的一局开始了，双方颜色已保留。');
+        else if (entry.action.type === 'color') showMessage(`${NAMES[entry.action.player]}的新颜色已同步。`, 'info', 2500);
+      } catch {
+        // An ambiguous write must never cause dependent moves to be replayed on another board.
+        pendingActions = [];
+        uncertain = true;
+        setHealth(false, sequence);
+        showMessage('同步中断，尚未确认的操作已撤回。正在重新读取云端棋局。', 'error');
+        break;
+      }
     }
-  } catch {
-    uncertain = true;
-    setHealth(false, sequence);
-    showMessage('暂时无法确认操作结果，正在重新读取棋局，请稍候。', 'error');
   } finally {
-    pendingAction = null;
+    reconciling = uncertain || needsRefresh;
     saving = false;
-    // Restore native color inputs to the last confirmed server values as well.
     renderState();
     renderControls();
   }
-  if (uncertain || needsRefresh) {
-    if (refreshPromise) await refreshPromise;
-    await refresh({ uncertain });
+  if (reconciling) {
+    try {
+      if (refreshPromise) await refreshPromise;
+      await refresh({ uncertain });
+    } finally {
+      reconciling = false;
+      renderControls();
+    }
   }
 }
 
@@ -382,7 +437,7 @@ intersections.addEventListener('keydown', (event) => {
 
 $('reset-button').addEventListener('click', () => confirmAction('reset'));
 $('undo-button').addEventListener('click', () => {
-  if (state?.moves.length) submitAction({ type: 'undo' });
+  if (previewState()?.moves.length) submitAction({ type: 'undo' });
 });
 $('retry-button').addEventListener('click', () => refresh({ manual: true }));
 $('confirm-dialog').addEventListener('close', () => {
