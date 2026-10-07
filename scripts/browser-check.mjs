@@ -22,7 +22,7 @@ try {
   await b.goto(origin); await ready(b); await moveCount(b, 1);
   assert.equal(await b.locator('#color-1').inputValue(), '#d64265');
   await b.locator('.intersection[data-x="8"][data-y="7"]').click();
-  await moveCount(a, 2); await moveCount(b, 2);
+  await moveCount(a, 2); await moveCount(b, 2); await ready(b);
   await a.reload(); await ready(a); await moveCount(a, 2);
   assert.equal(await a.locator('#color-1').inputValue(), '#d64265');
   await b.locator('#color-2').evaluate(el => { el.value = '#397cc0'; el.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -32,7 +32,8 @@ try {
   assert.equal(await a.locator('.intersection .stone').count(), 2);
   await desktop.setOffline(false);
   await ready(a); await moveCount(a, 2);
-  await b.locator('#undo-button').click(); await b.locator('#dialog-confirm').click();
+  await b.locator('#undo-button').click();
+  assert.equal(await b.locator('#confirm-dialog').evaluate(el => el.open), false);
   await moveCount(a, 1); await moveCount(b, 1);
   for (const page of [a, b]) assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await mkdir('artifacts', { recursive: true });

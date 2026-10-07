@@ -23,6 +23,7 @@ let lastSync = null;
 let focusedCell = 112;
 let messageTimer;
 let pendingConfirmation = null;
+let pendingAction = null;
 
 function buildBoard() {
   const coordinates = Array.from({ length: SIZE }, (_, i) => 24 + i * 48);
@@ -87,16 +88,16 @@ function positionName(x, y) {
   return `${String.fromCharCode(65 + x)}${SIZE - y}`;
 }
 
-function nextPlayer() {
-  return state ? (state.moves.length % 2) + 1 : 1;
+function nextPlayer(current = state) {
+  return current ? (current.moves.length % 2) + 1 : 1;
 }
 
-function isDraw() {
-  return state && state.moves.length === SIZE * SIZE && state.winner === 0;
+function isDraw(current = state) {
+  return current && current.moves.length === SIZE * SIZE && current.winner === 0;
 }
 
-function isFinished() {
-  return state && (state.winner !== 0 || isDraw());
+function isFinished(current = state) {
+  return current && (current.winner !== 0 || isDraw(current));
 }
 
 function colorInk(color) {
@@ -134,54 +135,64 @@ function applyState(nextState) {
   renderState();
 }
 
-function renderState() {
-  if (!state) return;
-  const occupied = new Map(state.moves.map((move, index) => [move.y * SIZE + move.x, { ...move, index }]));
-  const winning = new Set(state.line.map(({ x, y }) => y * SIZE + x));
+// Keep speculative display separate from the authoritative revision and chess history.
+function previewState() {
+  if (!pendingAction || !state) return state;
+  const moves = pendingAction.type === 'move'
+    ? [...state.moves, { x: pendingAction.x, y: pendingAction.y, player: nextPlayer() }]
+    : pendingAction.type === 'undo' ? state.moves.slice(0, -1) : state.moves;
+  return { ...state, moves, winner: 0, line: [] };
+}
+
+function renderState(view = previewState()) {
+  if (!view) return;
+  const occupied = new Map(view.moves.map((move, index) => [move.y * SIZE + move.x, { ...move, index }]));
+  const winning = new Set(view.line.map(({ x, y }) => y * SIZE + x));
   cells.forEach((cell, index) => {
     const move = occupied.get(index);
     const previous = cell.dataset.move;
-    const signature = move ? `${move.player}:${move.index}:${state.colors[move.player - 1]}:${winning.has(index)}:${move.index === state.moves.length - 1}` : '';
+    const isPending = pendingAction?.type === 'move' && move && move.index === view.moves.length - 1;
+    const signature = move ? `${Boolean(isPending)}:${move.player}:${move.index}:${view.colors[move.player - 1]}:${winning.has(index)}:${move.index === view.moves.length - 1}` : '';
     if (previous !== signature) {
       cell.replaceChildren();
       cell.dataset.move = signature;
       if (move) {
         const stone = document.createElement('span');
-        stone.className = `stone${move.index === state.moves.length - 1 ? ' is-last' : ''}${winning.has(index) ? ' is-winning' : ''}`;
+        stone.className = `stone${isPending ? ' is-pending' : ''}${move.index === view.moves.length - 1 ? ' is-last' : ''}${winning.has(index) ? ' is-winning' : ''}`;
         stone.setAttribute('aria-hidden', 'true');
         styleStone(stone, move.player);
         cell.append(stone);
       }
     }
     const coordinate = positionName(index % SIZE, Math.floor(index / SIZE));
-    cell.setAttribute('aria-label', move ? `${coordinate}，${NAMES[move.player]}，第 ${move.index + 1} 手${move.index === state.moves.length - 1 ? '，最后落子' : ''}` : `${coordinate}，空位`);
+    cell.setAttribute('aria-label', move ? `${coordinate}，${NAMES[move.player]}，第 ${move.index + 1} 手${move.index === view.moves.length - 1 ? '，最后落子' : ''}` : `${coordinate}，空位`);
     cell.dataset.occupied = move ? 'true' : 'false';
   });
 
   for (const player of [1, 2]) {
     styleStone($(`player-stone-${player}`), player);
-    $(`color-${player}`).value = state.colors[player - 1];
-    $(`player-card-${player}`).classList.toggle('is-current', !isFinished() && nextPlayer() === player);
+    $(`color-${player}`).value = view.colors[player - 1];
+    $(`player-card-${player}`).classList.toggle('is-current', !isFinished(view) && nextPlayer(view) === player);
     for (const option of $(`color-options-${player}`).children) {
-      option.setAttribute('aria-pressed', String(option.dataset.color.toLowerCase() === state.colors[player - 1].toLowerCase()));
+      option.setAttribute('aria-pressed', String(option.dataset.color.toLowerCase() === view.colors[player - 1].toLowerCase()));
     }
   }
 
-  $('round').textContent = String(state.round).padStart(2, '0');
-  $('move-count').replaceChildren(document.createTextNode(String(state.moves.length)));
+  $('round').textContent = String(view.round).padStart(2, '0');
+  $('move-count').replaceChildren(document.createTextNode(String(view.moves.length)));
   const moveUnit = document.createElement('small');
   moveUnit.textContent = '手';
   $('move-count').append(moveUnit);
-  const player = state.winner || nextPlayer();
+  const player = view.winner || nextPlayer(view);
   styleStone($('turn-stone'), player);
-  $('turn-stone').hidden = Boolean(isDraw());
-  $('turn-heading').textContent = isFinished() ? '这一局，已见分晓' : '棋局进行时';
-  $('turn-title').textContent = state.winner ? `${NAMES[state.winner]}获胜` : isDraw() ? '和棋，也是好棋' : `轮到${NAMES[player]}落子`;
-  $('turn-description').textContent = state.winner ? `${SYMBOLS[state.winner]} 已连成五子 · 可以再来一局` : isDraw() ? '棋盘已满 · 再来一局吧' : `点击交叉点，落下第 ${state.moves.length + 1} 手`;
-  $('game-status').textContent = state.winner ? '已有胜局' : isDraw() ? '和棋' : state.moves.length ? '对弈中' : '等待落子';
-  const lastMove = state.moves.at(-1);
-  $('last-move').textContent = lastMove ? `第 ${state.moves.length} 手 · ${NAMES[lastMove.player]} ${positionName(lastMove.x, lastMove.y)}` : '先手先行 · 从这里开始';
-  board.style.setProperty('--preview-color', state.colors[nextPlayer() - 1]);
+  $('turn-stone').hidden = Boolean(isDraw(view));
+  $('turn-heading').textContent = isFinished(view) ? '这一局，已见分晓' : '棋局进行时';
+  $('turn-title').textContent = view.winner ? `${NAMES[view.winner]}获胜` : isDraw(view) ? '和棋，也是好棋' : `轮到${NAMES[player]}落子`;
+  $('turn-description').textContent = view.winner ? `${SYMBOLS[view.winner]} 已连成五子 · 可以再来一局` : isDraw(view) ? '棋盘已满 · 再来一局吧' : `点击交叉点，落下第 ${view.moves.length + 1} 手`;
+  $('game-status').textContent = view.winner ? '已有胜局' : isDraw(view) ? '和棋' : view.moves.length ? '对弈中' : '等待落子';
+  const lastMove = view.moves.at(-1);
+  $('last-move').textContent = lastMove ? `第 ${view.moves.length} 手 · ${NAMES[lastMove.player]} ${positionName(lastMove.x, lastMove.y)}` : '先手先行 · 从这里开始';
+  board.style.setProperty('--preview-color', view.colors[nextPlayer(view) - 1]);
   $('board-loading').hidden = true;
   renderControls();
 }
@@ -206,7 +217,7 @@ function renderControls() {
   $('connection-text').textContent = mode === 'saving' ? '正在同步' : mode === 'online' ? '棋局已同步' : mode === 'connecting' ? '连接棋盘中' : '棋盘未连接';
   $('retry-button').hidden = connected || saving;
   $('retry-button').disabled = Boolean(refreshPromise);
-  $('sync-detail').textContent = connected && lastSync
+  $('sync-detail').textContent = saving ? '正在保存操作，请稍候…' : connected && lastSync
     ? `已同步 ${lastSync.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })} · 自动保存`
     : state ? '连接中断 · 正在保留当前画面' : '棋局保存在云端';
   if (!state) {
@@ -251,6 +262,8 @@ function refresh({ manual = false, uncertain = false } = {}) {
     try {
       const { response, body } = await requestJSON();
       if (!response.ok) throw new Error(body.error || '暂时无法读取棋局。');
+      // A read started before this write must not replace its immediate preview.
+      if (saving || sequence < lastHealthSequence) return false;
       applyState(body.state);
       setHealth(true, sequence);
       if (uncertain) showMessage('已重新读取棋局，请查看落子结果后继续。');
@@ -272,6 +285,8 @@ function refresh({ manual = false, uncertain = false } = {}) {
 async function submitAction(action, expectedRevision = state?.revision) {
   if (!state || !connected || saving) return;
   saving = true;
+  pendingAction = ['move', 'undo'].includes(action.type) ? action : null;
+  renderState();
   renderControls();
   const sequence = ++requestSequence;
   let uncertain = false;
@@ -282,6 +297,7 @@ async function submitAction(action, expectedRevision = state?.revision) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revision: expectedRevision, requestId: crypto.randomUUID(), action }),
     });
+    pendingAction = null;
     if (response.status === 409) {
       applyState(body.state);
       setHealth(true, sequence);
@@ -303,6 +319,7 @@ async function submitAction(action, expectedRevision = state?.revision) {
     setHealth(false, sequence);
     showMessage('暂时无法确认操作结果，正在重新读取棋局，请稍候。', 'error');
   } finally {
+    pendingAction = null;
     saving = false;
     // Restore native color inputs to the last confirmed server values as well.
     renderState();
@@ -323,12 +340,9 @@ function confirmAction(type) {
   if (!state || !connected || saving) return;
   // Confirm the exact revision the visitor saw, so a later move is never silently erased.
   pendingConfirmation = { type, revision: state.revision };
-  const undo = type === 'undo';
-  $('dialog-title').textContent = undo ? '退回刚刚的这一步？' : '重新开始这一局？';
-  $('dialog-description').textContent = undo
-    ? '最后落下的一颗棋子将被撤回，所有设备都会同步。请先与对手商量好。'
-    : '当前棋盘将被清空，所有设备都会进入新的一局。双方颜色会保留。';
-  $('dialog-confirm').textContent = undo ? '确认悔棋' : '确认重开';
+  $('dialog-title').textContent = '重新开始这一局？';
+  $('dialog-description').textContent = '当前棋盘将被清空，所有设备都会进入新的一局。双方颜色会保留。';
+  $('dialog-confirm').textContent = '确认重开';
   $('confirm-dialog').returnValue = '';
   $('confirm-dialog').showModal();
   $('dialog-cancel').focus();
@@ -367,7 +381,9 @@ intersections.addEventListener('keydown', (event) => {
 });
 
 $('reset-button').addEventListener('click', () => confirmAction('reset'));
-$('undo-button').addEventListener('click', () => confirmAction('undo'));
+$('undo-button').addEventListener('click', () => {
+  if (state?.moves.length) submitAction({ type: 'undo' });
+});
 $('retry-button').addEventListener('click', () => refresh({ manual: true }));
 $('confirm-dialog').addEventListener('close', () => {
   const confirmation = pendingConfirmation;
