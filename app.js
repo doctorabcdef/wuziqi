@@ -2,6 +2,7 @@ import { API_BASE } from './config.js?v=20261007-2';
 
 const API_URL = `${API_BASE.replace(/\/+$/, '')}/api/game`;
 const SIZE = 15;
+const SYNC_INTERVAL_MS = 250;
 const NAMES = ['', '先手', '后手'];
 const PRESETS = [
   ['#222b38', '墨黑'], ['#edf0f4', '月白'], ['#718169', '苔绿'],
@@ -24,6 +25,8 @@ let messageTimer;
 let pendingConfirmation = null;
 let pendingActions = [];
 let reconciling = false;
+let syncTimer = null;
+let syncRetryMs = 0;
 
 function buildBoard() {
   const coordinates = Array.from({ length: SIZE }, (_, i) => 24 + i * 48);
@@ -290,11 +293,14 @@ function refresh({ manual = false, uncertain = false } = {}) {
       // A read started before this write must not replace its immediate preview.
       if (saving || sequence < lastHealthSequence) return false;
       applyState(body.state);
+      syncRetryMs = 0;
       setHealth(true, sequence);
       if (uncertain) showMessage('已重新读取棋局，请查看落子结果后继续。');
       else if (manual) showMessage('已连接，棋局已更新。');
       return true;
     } catch {
+      if (saving || sequence < lastHealthSequence) return false;
+      syncRetryMs = Math.min(10000, syncRetryMs ? syncRetryMs * 2 : 1000);
       setHealth(false, sequence);
       if (manual || uncertain) showMessage('暂时无法连接。当前画面已保留，请稍后重试。', 'error');
       return false;
@@ -305,6 +311,26 @@ function refresh({ manual = false, uncertain = false } = {}) {
   })();
   renderControls();
   return refreshPromise;
+}
+
+function scheduleSync(delay) {
+  clearTimeout(syncTimer);
+  if (document.hidden || navigator.onLine === false) return;
+  syncTimer = setTimeout(pollSync, delay);
+}
+
+async function pollSync() {
+  clearTimeout(syncTimer);
+  if (document.hidden || navigator.onLine === false) return;
+  const started = performance.now();
+  await refresh();
+  // Compensate for the GET duration, while refreshPromise prevents overlapping requests.
+  scheduleSync(syncRetryMs || Math.max(0, SYNC_INTERVAL_MS - (performance.now() - started)));
+}
+
+function resumeSync() {
+  syncRetryMs = 0;
+  void pollSync();
 }
 
 function submitAction(action, expectedRevision = state?.revision) {
@@ -438,7 +464,10 @@ $('reset-button').addEventListener('click', () => confirmAction('reset'));
 $('undo-button').addEventListener('click', () => {
   if (previewState()?.moves.length) submitAction({ type: 'undo' });
 });
-$('retry-button').addEventListener('click', () => refresh({ manual: true }));
+$('retry-button').addEventListener('click', () => {
+  syncRetryMs = 0;
+  void refresh({ manual: true }).finally(() => scheduleSync(syncRetryMs || SYNC_INTERVAL_MS));
+});
 $('confirm-dialog').addEventListener('close', () => {
   const confirmation = pendingConfirmation;
   pendingConfirmation = null;
@@ -446,11 +475,14 @@ $('confirm-dialog').addEventListener('close', () => {
     submitAction({ type: confirmation.type }, confirmation.revision);
   }
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-window.addEventListener('focus', () => refresh());
-window.addEventListener('online', () => refresh());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTimeout(syncTimer);
+  else resumeSync();
+});
+window.addEventListener('focus', resumeSync);
+window.addEventListener('online', resumeSync);
 window.addEventListener('offline', () => {
+  clearTimeout(syncTimer);
   setHealth(false, ++requestSequence);
 });
-setInterval(() => { if (!document.hidden) refresh(); }, 2000);
-refresh();
+resumeSync();
