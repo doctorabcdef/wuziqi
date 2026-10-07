@@ -49,8 +49,13 @@ for (const page of [a, b]) {
 }
 const texts = page => page.locator('.chat-message-text');
 const hasText = (page, text) => page.locator('.chat-message-text').filter({ hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) });
-async function shown(page, text) { await hasText(page, text).waitFor({ state: 'attached' }); }
-async function idle(page) { await page.waitForFunction(() => !document.querySelector('#chat-send').disabled); }
+async function shown(page, text) {
+  await page.waitForFunction(value => [...document.querySelectorAll('.chat-message[data-delivery="sent"] .chat-message-text')]
+    .some(node => node.textContent === value), text);
+}
+async function idle(page) {
+  await page.waitForFunction(() => !document.querySelector('.chat-message[data-delivery="queued"], .chat-message[data-delivery="sending"]'));
+}
 try {
   await Promise.all([a.goto(origin), b.goto(origin)]);
   await Promise.all([shown(a, '历史消息 65'), shown(b, '历史消息 65')]);

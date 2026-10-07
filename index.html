@@ -7,9 +7,9 @@
     <meta name="description" content="一张始终在线的公共五子棋棋盘。跨设备继续棋局，为双方选择喜欢的棋子颜色。" />
     <title>棋间 · 共享五子棋</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20261007-5" />
-    <script type="module" src="./app.js?v=20261007-5"></script>
-    <script type="module" src="./chat.js?v=20261007-5"></script>
+    <link rel="stylesheet" href="./styles.css?v=20261007-6" />
+    <script type="module" src="./app.js?v=20261007-6"></script>
+    <script type="module" src="./chat.js?v=20261007-6"></script>
   </head>
   <body>
     <header class="site-header page-width">
@@ -62,6 +62,10 @@
             <button id="chat-new" class="chat-new text-button" type="button" hidden>有新消息 ↓</button>
             <div class="chat-quick" aria-label="快捷发送">
               <button type="button" data-chat-quick="太慢了">太慢了</button><button type="button" data-chat-quick="搞快点好不">搞快点好不</button>
+            </div>
+            <div class="chat-voice-shortcuts" aria-label="语音快捷发送">
+              <button type="button" data-chat-voice="slow" aria-label="发送并播放语音：太慢了太慢了"><span aria-hidden="true">▶</span> 太慢了太慢了</button>
+              <button type="button" data-chat-voice="hurry" aria-label="发送并播放语音：搞快点好不"><span aria-hidden="true">▶</span> 搞快点好不</button>
             </div>
             <div class="chat-emoji" aria-label="表情快捷发送">
               <button type="button" data-chat-quick="😀" aria-label="发送开心表情">😀</button><button type="button" data-chat-quick="😂" aria-label="发送笑哭表情">😂</button><button type="button" data-chat-quick="🤔" aria-label="发送思考表情">🤔</button><button type="button" data-chat-quick="😭" aria-label="发送大哭表情">😭</button><button type="button" data-chat-quick="👍" aria-label="发送点赞表情">👍</button><button type="button" data-chat-quick="🎉" aria-label="发送庆祝表情">🎉</button>
