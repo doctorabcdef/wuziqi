@@ -7,7 +7,8 @@
     "test": "node --test backend/test/*.test.mjs",
     "test:browser": "node scripts/browser-check.mjs",
     "test:interaction": "node scripts/interaction-check.mjs",
-    "test:sync": "node scripts/sync-check.mjs"
+    "test:sync": "node scripts/sync-check.mjs",
+    "test:chat": "node scripts/chat-check.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"

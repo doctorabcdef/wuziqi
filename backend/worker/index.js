@@ -82,6 +82,46 @@ async function readState(db) {
   return { ...JSON.parse(row.state), revision: row.revision };
 }
 
+const CHAT_COLUMNS = 'id, request_id AS requestId, sender_id AS senderId, name, text, created_at AS createdAt';
+
+async function readMessages(db, params) {
+  function integerParam(key, fallback) {
+    if (!params.has(key)) return fallback;
+    const raw = params.get(key), number = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(number) || number < 0) invalid('消息分页参数不正确。');
+    return number;
+  }
+  const limit = integerParam('limit', 50);
+  if (limit < 1 || limit > 100 || (params.has('before') && params.has('after'))) invalid('消息分页参数不正确。');
+  const after = integerParam('after', null), before = integerParam('before', null);
+  const forward = after !== null;
+  const filter = forward ? ' WHERE id > ?' : before !== null ? ' WHERE id < ?' : '';
+  const args = forward ? [after] : before !== null ? [before] : [];
+  const { results } = await db.prepare(`SELECT ${CHAT_COLUMNS} FROM chat_messages${filter} ORDER BY id ${forward ? 'ASC' : 'DESC'} LIMIT ?`)
+    .bind(...args, limit + 1).all();
+  const messages = results.slice(0, limit);
+  if (!forward) messages.reverse();
+  return { messages, hasMore: results.length > limit };
+}
+
+async function saveMessage(db, payload, json) {
+  if (!payload || typeof payload.requestId !== 'string' || !UUID.test(payload.requestId) ||
+    typeof payload.senderId !== 'string' || !UUID.test(payload.senderId) ||
+    typeof payload.name !== 'string' || typeof payload.text !== 'string') invalid('消息格式不正确。');
+  const name = payload.name.trim(), text = payload.text.trim();
+  if (!name || [...name].length > 20) invalid('昵称请填写 1 至 20 个字。');
+  if (!text || [...text].length > 500) invalid('消息请填写 1 至 500 个字。');
+  const message = await db.prepare(`INSERT INTO chat_messages (request_id, sender_id, name, text, created_at)
+    VALUES (?, ?, ?, ?, ?) ON CONFLICT(request_id) DO NOTHING RETURNING ${CHAT_COLUMNS}`)
+    .bind(payload.requestId, payload.senderId, name, text, new Date().toISOString()).first();
+  if (message) return json({ message }, 201);
+  const previous = await db.prepare(`SELECT ${CHAT_COLUMNS} FROM chat_messages WHERE request_id = ?`).bind(payload.requestId).first();
+  if (!previous) throw new Error('Saved message unavailable');
+  if (previous.senderId !== payload.senderId || previous.name !== name || previous.text !== text)
+    return json({ error: '这条请求已用于其他消息，请重新发送。' }, 409);
+  return json({ message: previous });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -95,12 +135,13 @@ export default {
     };
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers });
     if (origin && !allowed) return json({ error: '此来源不可访问棋盘。' }, 403);
-    if (url.pathname !== '/api/game' && url.pathname !== '/health') return json({ error: 'Not found' }, 404);
+    if (!['/api/game', '/api/chat', '/health'].includes(url.pathname)) return json({ error: 'Not found' }, 404);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (!['GET', 'POST'].includes(request.method)) return json({ error: 'Method not allowed' }, 405);
     try {
       const db = database(env);
-      const current = await readState(db);
+      if (url.pathname === '/api/chat' && request.method === 'GET') return json(await readMessages(db, url.searchParams));
+      const current = url.pathname === '/api/chat' ? null : await readState(db);
       if (url.pathname === '/health') return json({ ok: true });
       if (request.method === 'GET') return json({ state: publicState(current) });
       if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))
@@ -124,6 +165,7 @@ export default {
         for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
         payload = JSON.parse(new TextDecoder().decode(bytes));
       } catch { return json({ error: '请求格式不正确。' }, 400); }
+      if (url.pathname === '/api/chat') return await saveMessage(db, payload, json);
       if (!payload || !Number.isSafeInteger(payload.revision) || payload.revision < 0 ||
         typeof payload.requestId !== 'string' || !UUID.test(payload.requestId))
         return json({ error: '请求格式不正确，请刷新页面。' }, 400);
@@ -141,8 +183,8 @@ export default {
       return json({ state: publicState(next) });
     } catch (error) {
       if (error.status === 400) return json({ error: error.message }, 400);
-      console.error('Game storage operation failed:', error.message);
-      return json({ error: '暂时无法连接云端棋盘，请稍后重试。' }, 503);
+      console.error('Storage operation failed:', error.message);
+      return json({ error: url.pathname === '/api/chat' ? '暂时无法连接聊天，请稍后重试。' : '暂时无法连接云端棋盘，请稍后重试。' }, 503);
     }
   },
 };

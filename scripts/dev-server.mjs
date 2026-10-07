@@ -5,11 +5,11 @@ import worker from '../backend/worker/index.js';
 import { connect } from '../backend/test/sqlite-adapter.mjs';
 await mkdir(new URL('../artifacts/', import.meta.url), { recursive: true });
 const db = connect(fileURLToPath(new URL('../artifacts/local-game.sqlite', import.meta.url)));
-const types = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'config.js': 'text/javascript', 'styles.css': 'text/css', 'favicon.svg': 'image/svg+xml' };
+const types = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'chat.js': 'text/javascript', 'config.js': 'text/javascript', 'styles.css': 'text/css', 'favicon.svg': 'image/svg+xml' };
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1:4173');
   try {
-    if (url.pathname === '/api/game') {
+    if (['/api/game', '/api/chat', '/health'].includes(url.pathname)) {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
       const response = await worker.fetch(new Request(url, { method: req.method, headers: req.headers,
         ...(req.method === 'POST' ? { body: Buffer.concat(chunks) } : {}) }), { DB: db });

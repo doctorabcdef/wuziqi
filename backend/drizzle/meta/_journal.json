@@ -8,6 +8,13 @@
       "when": 1790931266523,
       "tag": "0000_secret_wraith",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791355433139,
+      "tag": "0001_steep_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

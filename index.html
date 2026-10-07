@@ -7,8 +7,9 @@
     <meta name="description" content="一张始终在线的公共五子棋棋盘。跨设备继续棋局，为双方选择喜欢的棋子颜色。" />
     <title>棋间 · 共享五子棋</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20261007-4" />
-    <script type="module" src="./app.js?v=20261007-4"></script>
+    <link rel="stylesheet" href="./styles.css?v=20261007-5" />
+    <script type="module" src="./app.js?v=20261007-5"></script>
+    <script type="module" src="./chat.js?v=20261007-5"></script>
   </head>
   <body>
     <header class="site-header page-width">
@@ -50,6 +51,29 @@
           </section>
 
           <section class="actions-panel" aria-label="棋局操作"><button class="button button-primary" id="reset-button" disabled><span aria-hidden="true">↻</span> 重新开局</button><button class="button button-secondary" id="undo-button" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4-4 4 4 4M3 8h8a5 5 0 0 1 0 10"/></svg> 悔一步</button></section>
+          <section class="chat-panel" aria-labelledby="chat-heading">
+            <div class="section-heading"><h2 id="chat-heading">棋间聊两句</h2><span>CHAT</span></div>
+            <p class="section-description">历史消息自动保存，所有访客可见。</p>
+            <div class="chat-history-controls"><button id="chat-older" class="text-button" type="button" hidden>查看更早消息</button></div>
+            <div class="chat-scroll" id="chat-scroll" tabindex="0" aria-label="聊天记录">
+              <p class="chat-empty" id="chat-empty">正在读取聊天记录…</p>
+              <div id="chat-messages" class="chat-messages" role="log" aria-label="公共聊天消息" aria-live="off" aria-relevant="additions"></div>
+            </div>
+            <button id="chat-new" class="chat-new text-button" type="button" hidden>有新消息 ↓</button>
+            <div class="chat-quick" aria-label="快捷发送">
+              <button type="button" data-chat-quick="太慢了">太慢了</button><button type="button" data-chat-quick="搞快点好不">搞快点好不</button>
+            </div>
+            <div class="chat-emoji" aria-label="表情快捷发送">
+              <button type="button" data-chat-quick="😀" aria-label="发送开心表情">😀</button><button type="button" data-chat-quick="😂" aria-label="发送笑哭表情">😂</button><button type="button" data-chat-quick="🤔" aria-label="发送思考表情">🤔</button><button type="button" data-chat-quick="😭" aria-label="发送大哭表情">😭</button><button type="button" data-chat-quick="👍" aria-label="发送点赞表情">👍</button><button type="button" data-chat-quick="🎉" aria-label="发送庆祝表情">🎉</button>
+            </div>
+            <form id="chat-form" class="chat-form">
+              <label class="chat-name" for="chat-name">昵称<input id="chat-name" name="name" maxlength="20" value="棋友" autocomplete="nickname" aria-label="聊天昵称，最多 20 字" /></label>
+              <label class="chat-input-label" for="chat-input">说点什么</label>
+              <textarea id="chat-input" name="message" rows="2" maxlength="500" placeholder="说点什么…" aria-label="聊天消息，最多 500 字"></textarea>
+              <div class="chat-compose-footer"><span id="chat-count">0 / 500</span><button type="submit" id="chat-send" class="button button-primary">发送</button></div>
+            </form>
+            <div class="chat-status-row"><p id="chat-status" class="chat-status" role="status">连接聊天中</p><button id="chat-retry-send" class="text-button" type="button" hidden>重试发送</button><button id="chat-retry" class="text-button" type="button" hidden>重新连接</button></div>
+          </section>
           <div class="shared-notice"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 9v5M10 5.5v.5"/></svg><p><strong>这是所有人共用的棋盘</strong>打开此网页即可继续同一局。落子、配色、悔棋和重开会同步给所有访客。</p></div>
           <div class="sync-footer"><span id="sync-detail">棋局保存在云端</span><button id="retry-button" class="text-button" hidden>重新连接</button></div>
         </aside>
