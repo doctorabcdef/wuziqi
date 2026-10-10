@@ -27,7 +27,7 @@ jobs:
       - name: Select public website files
         run: |
           mkdir public-site
-          cp index.html styles.css app.js chat.js voice-clips.js config.js favicon.svg public-site/
+          cp index.html styles.css app.js chat.js voice-clips.js voice-broadcast.js config.js favicon.svg public-site/
           cp -R assets public-site/assets
           touch public-site/.nojekyll
       - uses: actions/upload-pages-artifact@v4

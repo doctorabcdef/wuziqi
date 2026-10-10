@@ -1,5 +1,6 @@
 import { API_BASE } from './config.js?v=20261007-2';
 import { VOICE_CLIPS } from './voice-clips.js?v=20261007-6';
+import { createVoiceBroadcast } from './voice-broadcast.js?v=20261010-1';
 
 const API_URL = API_BASE.replace(/\/+$/, '') + '/api/chat';
 const POLL_MS = 250;
@@ -42,6 +43,25 @@ let timer = null;
 let retryDelay = 0;
 let inputVersion = 0;
 let activeAudio = null;
+const localVoiceRequests = new Set();
+let broadcastState = { enabled: false, blocked: false, pending: 0, error: '' };
+const voiceBroadcast = createVoiceBroadcast({
+  canPlay: () => !activeAudio || activeAudio.paused,
+  onState(state) {
+    broadcastState = state;
+    const button = $('chat-enable-sound');
+    const ready = state.enabled && !state.blocked && !state.error;
+    button.disabled = ready;
+    button.textContent = ready ? '声音已开启' : state.error ? '重试开启声音' : '开启本设备声音';
+    $('chat-sound-status').textContent = state.blocked ? '有语音待播放，点击开启本设备声音。'
+      : state.error ? '声音暂时无法播放，请点击重试。'
+      : ready ? (state.pending ? '正在接收语音，连续消息会依次播放。' : '已开启，其他设备发来的语音会自动播放。')
+      : '每台设备点一次开启，即可自动听到新语音。';
+  },
+  onMessage(requestId, status) {
+    messageNodes.get(requestId)?.querySelector('.chat-message-voice')?.setBroadcastStatus(status);
+  },
+});
 
 function nearBottom() {
   return scrollBox.scrollHeight - scrollBox.clientHeight - scrollBox.scrollTop < 60;
@@ -96,26 +116,48 @@ function createVoiceBody(clip) {
   const status = document.createElement('span');
   status.className = 'chat-voice-status';
   let played = false;
+  let broadcastStatus = '';
 
   function updatePlayer(note = '') {
-    const playing = !audio.paused && !audio.ended;
+    const playing = (!audio.paused && !audio.ended) || broadcastStatus === 'playing';
     icon.textContent = playing ? 'Ⅱ' : '▶';
     button.setAttribute('aria-label', (playing ? '暂停' : '播放') + '语音：' + clip.label);
     button.setAttribute('aria-pressed', String(playing));
     const duration = Number.isFinite(audio.duration) ? Math.max(1, Math.ceil(audio.duration)) + ' 秒 · ' : '';
-    status.textContent = note || (playing ? '正在播放…' : duration + (played ? '点击重播' : '点击播放'));
+    status.textContent = note || (playing ? '正在播放…'
+      : broadcastStatus === 'queued' ? '等待依次播放'
+      : broadcastStatus === 'paused' ? '已暂停，点击继续'
+      : broadcastStatus === 'blocked' ? '点击开启声音，或点击播放'
+      : broadcastStatus === 'error' ? '播放失败，点击重试'
+      : duration + (played ? '点击重播' : '点击播放'));
   }
+
+  body.setBroadcastStatus = (value) => {
+    broadcastStatus = value;
+    if (value === 'played') played = true;
+    updatePlayer();
+  };
 
   // Keep each player on its stable DOM node: a server confirmation must not
   // replace an audio element that the visitor is already listening to.
-  body.playVoice = (automatic = false) => {
-    if (automatic && activeAudio && !activeAudio.paused) return;
-    if (!automatic && !audio.paused) {
+  body.playVoice = () => {
+    if (broadcastStatus === 'playing') {
+      voiceBroadcast.pause({ hold: true });
+      return;
+    }
+    if (['queued', 'paused', 'blocked', 'error'].includes(broadcastStatus)) {
+      enableSound();
+      return;
+    }
+    if (!audio.paused) {
       audio.pause();
       return;
     }
-    if (activeAudio && activeAudio !== audio) activeAudio.pause();
+    voiceBroadcast.pause();
+    const previousAudio = activeAudio;
     activeAudio = audio;
+    if (previousAudio && previousAudio !== audio) previousAudio.pause();
+    broadcastStatus = '';
     if (audio.error) audio.load();
     const playback = audio.play();
     if (playback) playback.catch((error) => {
@@ -125,16 +167,17 @@ function createVoiceBody(clip) {
       }
       if (activeAudio === audio) activeAudio = null;
       updatePlayer(error.name === 'NotAllowedError' ? '点击播放语音' : '播放失败，点击重试');
+      voiceBroadcast.resume();
     });
   };
   button.addEventListener('click', () => body.playVoice());
   audio.addEventListener('play', () => { played = true; updatePlayer(); });
   audio.addEventListener('pause', () => {
-    if (activeAudio === audio) activeAudio = null;
+    if (activeAudio === audio) { activeAudio = null; voiceBroadcast.resume(); }
     updatePlayer();
   });
   audio.addEventListener('ended', () => {
-    if (activeAudio === audio) activeAudio = null;
+    if (activeAudio === audio) { activeAudio = null; voiceBroadcast.resume(); }
     updatePlayer();
   });
   audio.addEventListener('loadedmetadata', () => updatePlayer());
@@ -218,7 +261,7 @@ function renderMessages({ older = false, own = false, initial = false, added = f
 function mergeMessages(batch, options = {}) {
   let added = false;
   let confirmed = false;
-  let incomingVoice = null;
+  const incomingVoices = [];
   for (const message of batch) {
     const pending = outgoing.get(message.requestId);
     if (pending) {
@@ -231,16 +274,16 @@ function mergeMessages(batch, options = {}) {
     if (!messages.has(message.id)) {
       messages.set(message.id, message);
       added = true;
-      if (!options.initial && !options.older && message.senderId !== senderId && voiceClip(message.text)) incomingVoice = message.requestId;
+      // Device identity can be shared by two tabs. Exclude only requests that
+      // this page already played locally, so every other open page hears them.
+      const clip = voiceClip(message.text);
+      if (!options.initial && !options.older && !localVoiceRequests.has(message.requestId) && clip)
+        incomingVoices.push({ requestId: message.requestId, clip });
     }
   }
   if (added || confirmed) renderMessages({ ...options, added });
   else updateStatus();
-  // Autoplay may require a prior gesture. A blocked message retains an explicit
-  // playback control, and opening or paginating history never starts playback.
-  if (incomingVoice && document.visibilityState !== 'hidden') {
-    messageNodes.get(incomingVoice)?.querySelector('.chat-message-voice')?.playVoice(true);
-  }
+  for (const voice of incomingVoices) voiceBroadcast.enqueue(voice);
 }
 
 async function request(url, options = {}) {
@@ -257,7 +300,7 @@ async function request(url, options = {}) {
 }
 
 function canPoll() {
-  return document.visibilityState !== 'hidden' && navigator.onLine !== false;
+  return (document.visibilityState !== 'hidden' || broadcastState.enabled) && navigator.onLine !== false;
 }
 
 function schedulePoll(delay = retryDelay || POLL_MS) {
@@ -305,7 +348,8 @@ async function poll() {
       updateStatus();
     } finally {
       pollPromise = null;
-      schedulePoll(retryDelay || Math.max(0, POLL_MS - (performance.now() - startedAt)));
+      const interval = document.visibilityState === 'hidden' ? 1000 : POLL_MS;
+      schedulePoll(retryDelay || Math.max(0, interval - (performance.now() - startedAt)));
     }
   })();
   return pollPromise;
@@ -423,6 +467,7 @@ function sendText(text, draft = null) {
     record.draft = draft;
     if (input.value === draft) changeDraft('');
   }
+  if (voiceClip(trimmed)) localVoiceRequests.add(record.requestId);
   enqueue(record);
   return messageNodes.get(record.requestId);
 }
@@ -447,6 +492,13 @@ for (const button of voiceButtons) button.addEventListener('click', () => {
   const clip = VOICE_CLIPS[button.dataset.chatVoice];
   if (clip) sendText(clip.text)?.querySelector('.chat-message-voice')?.playVoice();
 });
+function enableSound() {
+  const previousAudio = activeAudio;
+  activeAudio = null;
+  previousAudio?.pause();
+  voiceBroadcast.enable();
+}
+$('chat-enable-sound').addEventListener('click', enableSound);
 $('chat-older').addEventListener('click', loadOlder);
 $('chat-new').addEventListener('click', scrollToLatest);
 scrollBox.addEventListener('scroll', () => { if (nearBottom()) $('chat-new').hidden = true; }, { passive: true });
@@ -459,6 +511,7 @@ function resume() {
   clearTimeout(timer);
   timer = null;
   updateStatus();
+  voiceBroadcast.resume();
   if (canPoll()) {
     retryDelay = 0;
     void poll();

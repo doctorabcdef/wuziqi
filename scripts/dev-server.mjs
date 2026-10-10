@@ -6,7 +6,7 @@ import { connect } from '../backend/test/sqlite-adapter.mjs';
 await mkdir(new URL('../artifacts/', import.meta.url), { recursive: true });
 const db = connect(fileURLToPath(new URL('../artifacts/local-game.sqlite', import.meta.url)));
 const port = Number(process.env.PORT || 4173);
-const types = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'chat.js': 'text/javascript', 'voice-clips.js': 'text/javascript', 'config.js': 'text/javascript', 'styles.css': 'text/css', 'favicon.svg': 'image/svg+xml',
+const types = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'chat.js': 'text/javascript', 'voice-clips.js': 'text/javascript', 'voice-broadcast.js': 'text/javascript', 'config.js': 'text/javascript', 'styles.css': 'text/css', 'favicon.svg': 'image/svg+xml',
   'assets/voice/slow.m4a': 'audio/mp4', 'assets/voice/hurry.m4a': 'audio/mp4' };
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);

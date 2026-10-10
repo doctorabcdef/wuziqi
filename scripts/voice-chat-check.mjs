@@ -177,7 +177,10 @@ try {
   assert.ok(await message(b, received.id).locator('.chat-voice-play').isEnabled());
   await b.evaluate(() => { window.denyVoicePlay = false; });
   await message(b, received.id).locator('.chat-voice-play').click();
-  await b.waitForFunction(id => document.querySelector(`.chat-message[data-message-id="${id}"] audio`)?.currentTime > 0.05, received.id);
+  await b.waitForFunction(id => {
+    const audio = document.querySelector('#chat-broadcast-audio');
+    return audio?.dataset.requestId === id && audio.currentTime > 0.05;
+  }, received.requestId);
   await pauseAudio(b);
 
   // Retry the failed voice bubble itself; preserve its request identity and save

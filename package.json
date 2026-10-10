@@ -9,7 +9,8 @@
     "test:interaction": "node scripts/interaction-check.mjs",
     "test:sync": "node scripts/sync-check.mjs",
     "test:chat": "node scripts/chat-check.mjs",
-    "test:voice": "node scripts/voice-chat-check.mjs"
+    "test:voice": "node scripts/voice-chat-check.mjs",
+    "test:broadcast": "node scripts/broadcast-check.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"
