@@ -1,6 +1,6 @@
 import { API_BASE } from './config.js?v=20261007-2';
 import { VOICE_CLIPS } from './voice-clips.js?v=20261007-6';
-import { createVoiceBroadcast } from './voice-broadcast.js?v=20261010-1';
+import { createVoiceBroadcast } from './voice-broadcast.js?v=20261010-2';
 
 const API_URL = API_BASE.replace(/\/+$/, '') + '/api/chat';
 const POLL_MS = 250;
@@ -44,19 +44,13 @@ let retryDelay = 0;
 let inputVersion = 0;
 let activeAudio = null;
 const localVoiceRequests = new Set();
-let broadcastState = { enabled: false, blocked: false, pending: 0, error: '' };
 const voiceBroadcast = createVoiceBroadcast({
   canPlay: () => !activeAudio || activeAudio.paused,
   onState(state) {
-    broadcastState = state;
-    const button = $('chat-enable-sound');
-    const ready = state.enabled && !state.blocked && !state.error;
-    button.disabled = ready;
-    button.textContent = ready ? '声音已开启' : state.error ? '重试开启声音' : '开启本设备声音';
-    $('chat-sound-status').textContent = state.blocked ? '有语音待播放，点击开启本设备声音。'
-      : state.error ? '声音暂时无法播放，请点击重试。'
-      : ready ? (state.pending ? '正在接收语音，连续消息会依次播放。' : '已开启，其他设备发来的语音会自动播放。')
-      : '每台设备点一次开启，即可自动听到新语音。';
+    const status = $('chat-sound-status');
+    status.hidden = !state.pending || (!state.blocked && !state.error);
+    status.textContent = state.blocked ? '有语音待播放，轻触页面即可收听。'
+      : state.error ? '语音暂时无法播放，点击语音消息可重试。' : '';
   },
   onMessage(requestId, status) {
     messageNodes.get(requestId)?.querySelector('.chat-message-voice')?.setBroadcastStatus(status);
@@ -127,7 +121,7 @@ function createVoiceBody(clip) {
     status.textContent = note || (playing ? '正在播放…'
       : broadcastStatus === 'queued' ? '等待依次播放'
       : broadcastStatus === 'paused' ? '已暂停，点击继续'
-      : broadcastStatus === 'blocked' ? '点击开启声音，或点击播放'
+      : broadcastStatus === 'blocked' ? '轻触页面，或点击播放'
       : broadcastStatus === 'error' ? '播放失败，点击重试'
       : duration + (played ? '点击重播' : '点击播放'));
   }
@@ -153,7 +147,8 @@ function createVoiceBody(clip) {
       audio.pause();
       return;
     }
-    voiceBroadcast.pause();
+    voiceBroadcast.unlock();
+    voiceBroadcast.pause({ preservePermission: true });
     const previousAudio = activeAudio;
     activeAudio = audio;
     if (previousAudio && previousAudio !== audio) previousAudio.pause();
@@ -300,7 +295,7 @@ async function request(url, options = {}) {
 }
 
 function canPoll() {
-  return (document.visibilityState !== 'hidden' || broadcastState.enabled) && navigator.onLine !== false;
+  return navigator.onLine !== false;
 }
 
 function schedulePoll(delay = retryDelay || POLL_MS) {
@@ -498,7 +493,15 @@ function enableSound() {
   previousAudio?.pause();
   voiceBroadcast.enable();
 }
-$('chat-enable-sound').addEventListener('click', enableSound);
+function unlockFromInteraction(event) {
+  // Voice controls handle their own gesture. A touchend followed by click must
+  // not start a blocked clip and immediately treat the same tap as "pause".
+  if (event.target.closest?.('.chat-voice-play')) return;
+  if (event.isTrusted && !event.repeat) voiceBroadcast.unlock();
+}
+for (const type of ['click', 'touchend', 'keydown']) {
+  document.addEventListener(type, unlockFromInteraction, { capture: true, passive: true });
+}
 $('chat-older').addEventListener('click', loadOlder);
 $('chat-new').addEventListener('click', scrollToLatest);
 scrollBox.addEventListener('scroll', () => { if (nearBottom()) $('chat-new').hidden = true; }, { passive: true });

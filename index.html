@@ -7,9 +7,9 @@
     <meta name="description" content="一张始终在线的公共五子棋棋盘。跨设备继续棋局，为双方选择喜欢的棋子颜色。" />
     <title>棋间 · 共享五子棋</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20261010-1" />
-    <script type="module" src="./app.js?v=20261010-1"></script>
-    <script type="module" src="./chat.js?v=20261010-1"></script>
+    <link rel="stylesheet" href="./styles.css?v=20261010-2" />
+    <script type="module" src="./app.js?v=20261010-2"></script>
+    <script type="module" src="./chat.js?v=20261010-2"></script>
   </head>
   <body>
     <header class="site-header page-width">
@@ -22,10 +22,6 @@
     </header>
 
     <main class="page-width">
-      <div class="sound-banner" aria-label="本设备的语音播放">
-        <button id="chat-enable-sound" class="button button-secondary" type="button">开启本设备声音</button>
-        <p id="chat-sound-status" role="status">每台设备点一次开启，即可自动听到新语音。</p>
-      </div>
       <section class="intro" aria-labelledby="page-title">
         <div><p class="eyebrow"><span></span> THE SHARED BOARD</p><h1 id="page-title">在此，继续一局<span>。</span></h1><p class="intro-copy">不必从头开始。换一台设备，落子之处依然如初。</p></div>
         <div class="round-tag"><span>当前棋局</span><strong id="round">—</strong><span>ROUND</span></div>
@@ -81,6 +77,7 @@
               <div class="chat-compose-footer"><span id="chat-count">0 / 500</span><button type="submit" id="chat-send" class="button button-primary">发送</button></div>
             </form>
             <div class="chat-status-row"><p id="chat-status" class="chat-status" role="status">连接聊天中</p><button id="chat-retry-send" class="text-button" type="button" hidden>重试发送</button><button id="chat-retry" class="text-button" type="button" hidden>重新连接</button></div>
+            <p id="chat-sound-status" class="chat-status" role="status" hidden></p>
           </section>
           <div class="shared-notice"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 9v5M10 5.5v.5"/></svg><p><strong>这是所有人共用的棋盘</strong>打开此网页即可继续同一局。落子、配色、悔棋和重开会同步给所有访客。</p></div>
           <div class="sync-footer"><span id="sync-detail">棋局保存在云端</span><button id="retry-button" class="text-button" hidden>重新连接</button></div>

@@ -47,7 +47,7 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
   }
 
   function allowedToStart() {
-    return !muted && !held && navigator.onLine !== false && canPlay() && (!document.hidden || enabled);
+    return !muted && !held && navigator.onLine !== false && canPlay();
   }
 
   function clearActive() {
@@ -59,9 +59,9 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
     }
   }
 
-  function pause({ hold = false } = {}) {
+  function pause({ hold = false, preservePermission = false } = {}) {
     if (hold) held = true;
-    if (!active) return;
+    if (!active || (preservePermission && !active.entry)) return;
     const entry = active.entry;
     if (entry && Number.isFinite(audio.currentTime)) entry.position = audio.currentTime;
     clearActive();
@@ -80,7 +80,7 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
       if (entry) entry.position = 0;
       blocked = failure?.name === 'NotAllowedError';
       if (blocked) enabled = false;
-      error = blocked ? '' : '语音播放失败，点击重试';
+      error = blocked || !entry ? '' : '语音播放失败，点击重试';
       if (entry) onMessage(entry.requestId, blocked ? 'blocked' : 'error');
       notify();
     };
@@ -129,7 +129,14 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
         blocked = false;
         error = '';
         if (entry) onMessage(entry.requestId, 'playing');
+        else {
+          // Grant permission to this element, then release it immediately.
+          // Do not wait for an inaudible clip to finish while manual audio plays.
+          clearActive();
+          audio.pause();
+        }
         notify();
+        if (!entry) pump();
       }, fail);
     } catch (failure) {
       fail(failure);
@@ -147,8 +154,7 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
     queue.push({ requestId, clip, position: 0 });
     onMessage(requestId, 'queued');
     notify();
-    // A voice arriving during the brief permission sound takes its place.
-    if (active && !active.entry) pause();
+    // Let an in-flight permission attempt settle; it will drain this queue.
     pump();
   }
 
@@ -164,6 +170,18 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
     notify();
   }
 
+  // Ordinary page interactions can grant media permission without a separate
+  // sound control. They must not cancel a deliberate pause or interrupt audio.
+  function unlock() {
+    if (active || held || muted || (enabled && !blocked && !error) || !allowedToStart()) return;
+    blocked = false;
+    error = '';
+    // Authorize without starting a queued voice that a manual player could
+    // immediately interrupt in the same gesture. Success drains the queue.
+    start();
+    notify();
+  }
+
   function setMuted(value) {
     muted = Boolean(value);
     if (muted) pause();
@@ -172,5 +190,5 @@ export function createVoiceBroadcast({ onState = () => {}, onMessage = () => {},
   }
 
   notify();
-  return { enqueue, enable, resume: pump, pause, setMuted };
+  return { enqueue, enable, unlock, resume: pump, pause, setMuted };
 }

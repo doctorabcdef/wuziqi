@@ -25,7 +25,9 @@ async function seed(text) {
 const oldest = await seed(VOICE_CLIPS.slow.text);
 for (let i = 1; i <= 53; i++) await seed(`历史文字 ${i}`);
 const latest = await seed(VOICE_CLIPS.hurry.text);
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+// The wrapper below supplies deterministic per-document autoplay policy while
+// Chromium still decodes and plays the real recordings for every assertion.
+const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
 const contexts = [
   await browser.newContext({ viewport: { width: 1440, height: 1080 } }),
   await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }),
@@ -38,24 +40,31 @@ for (const context of contexts) {
     window.broadcastAttempts = [];
     window.localVoicePlays = [];
     window.blockBroadcast = false;
+    window.allowBroadcastAutoplay = false;
+    window.trustedGestures = 0;
+    let gesture = false;
     // Model mobile browsers that grant playback to the exact media element
-    // touched in a user gesture, rather than granting every later audio node.
-    document.addEventListener('click', event => {
-      if (event.target.closest?.('#chat-enable-sound, .chat-voice-play')) {
-        const player = document.querySelector('#chat-broadcast-audio');
-        if (player) allowed.add(player);
-      }
+    // played inside a genuine user gesture. Merely touching the document does
+    // not authorize a different element, or a later asynchronous play attempt.
+    for (const eventName of ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown']) document.addEventListener(eventName, event => {
+      if (!event.isTrusted) return;
+      gesture = true;
+      window.trustedGestures++;
+      setTimeout(() => { gesture = false; }, 0);
     }, true);
     HTMLMediaElement.prototype.play = function (...args) {
       if (this.id === 'chat-broadcast-audio') {
         window.broadcastAttempts.push({ requestId: this.dataset.requestId || null, voice: this.dataset.voiceId || null });
-        if (!allowed.has(this) || window.blockBroadcast) {
+        if ((!allowed.has(this) && !window.allowBroadcastAutoplay && !gesture) || window.blockBroadcast) {
           return Promise.reject(new DOMException('This element needs a user gesture', 'NotAllowedError'));
         }
       } else if (this.closest('.chat-message')) {
         window.localVoicePlays.push(this.closest('.chat-message').dataset.requestId);
       }
-      return play.apply(this, args);
+      const playback = play.apply(this, args);
+      // An aborted permission attempt must not authorize later playback.
+      if (this.id === 'chat-broadcast-audio' && gesture) playback?.then(() => allowed.add(this), () => {});
+      return playback;
     };
     for (const eventName of ['playing', 'ended']) document.addEventListener(eventName, event => {
       const player = event.target;
@@ -138,19 +147,29 @@ try {
   assert.notEqual(senderIds[0], senderIds[1], 'Second page must represent an independent device');
   for (const page of pages) {
     assert.equal(await page.locator('#chat-broadcast-audio').count(), 1, 'Use one persistent incoming player per document');
+    assert.equal(await page.locator('#chat-enable-sound').count(), 0, 'Automatic sound must not require a separate enable button');
     assert.deepEqual(await events(page, 'playing'), [], 'Opening message history must remain silent');
   }
+
+  // A browser that permits autoplay must play without any document interaction.
+  // Restricted receivers preserve both clips until a normal touch/key gesture.
+  await a.evaluate(() => { window.allowBroadcastAutoplay = true; });
+  const initialBatch = [await seed(VOICE_CLIPS.slow.text), await seed(VOICE_CLIPS.hurry.text)];
+  const initialIds = initialBatch.map(item => item.requestId);
+  await Promise.all(pages.map(page => message(page, initialBatch[1].id).waitFor()));
+  await finished(a, initialIds);
+  assert.equal(await a.evaluate(() => window.trustedGestures), 0, 'Allowed autoplay must work before any click, tap, or keypress');
+  await waitUntil(async () => (await b.evaluate(() => window.broadcastAttempts)).some(item => item.requestId === initialIds[0]), 'Restricted receiver must attempt the first incoming recording');
+  assert.deepEqual(await events(b, 'playing'), []);
+  assert.deepEqual(await events(c, 'playing'), []);
+  await b.locator('h1').tap();
+  await c.keyboard.press('Shift');
+  await Promise.all([finished(b, initialIds), finished(c, initialIds)]);
+  assert.deepEqual(await events(b, 'playing'), initialIds, 'An ordinary touch must unlock every pending voice in order');
+  assert.deepEqual(await events(c, 'playing'), initialIds, 'An ordinary keypress must unlock the same shared media element');
   await b.locator('#chat-older').click();
   await message(b, oldest.id).waitFor();
-  assert.deepEqual(await events(b, 'playing'), [], 'Loading older voice messages must remain silent');
-
-  // A new message received before sound is enabled must survive autoplay denial.
-  const initiallyBlocked = await seed(VOICE_CLIPS.slow.text);
-  await Promise.all(pages.map(page => message(page, initiallyBlocked.id).waitFor()));
-  await waitUntil(async () => (await b.evaluate(() => window.broadcastAttempts)).some(item => item.requestId === initiallyBlocked.requestId), 'Incoming audio should attempt playback and expose the enable control');
-  assert.deepEqual(await events(b, 'playing'), []);
-  for (const page of pages) await page.locator('#chat-enable-sound').click();
-  await Promise.all(pages.map(page => finished(page, [initiallyBlocked.requestId])));
+  assert.deepEqual(await events(b, 'playing'), initialIds, 'Loading older voice messages must remain silent');
   for (const page of pages) await page.evaluate(() => { window.broadcastEvents = []; window.localVoicePlays = []; });
 
   // Hold each receiver's GET so three clicks arrive together in one response.
@@ -175,49 +194,79 @@ try {
 
   const replay = b.locator(`.chat-message[data-request-id="${burst[0]}"]`);
   const writeCount = writes.length;
+  await replay.locator('audio').evaluate(audio => { audio.playbackRate = 0.5; });
   await replay.locator('.chat-voice-play').click();
   await replay.locator('audio').evaluate(audio => new Promise((resolve, reject) => {
     const deadline = performance.now() + 5000;
     const check = () => audio.currentTime > 0.05 ? resolve() : performance.now() > deadline ? reject(new Error('Manual replay did not start')) : setTimeout(check, 25);
     check();
   }));
+  const beforeOrdinaryClick = await replay.locator('audio').evaluate(audio => audio.currentTime);
+  await b.locator('#chat-name').click();
+  await b.locator('#chat-name').press('ArrowRight');
+  const afterOrdinaryClick = await replay.locator('audio').evaluate(audio => ({ paused: audio.paused, position: audio.currentTime }));
+  assert.equal(afterOrdinaryClick.paused, false, 'An ordinary page click or keypress must not interrupt manual replay');
+  assert.ok(afterOrdinaryClick.position >= beforeOrdinaryClick, 'Ordinary interaction must not restart manual replay');
   await delay(400);
   assert.equal(writes.length, writeCount, 'Manual history replay must not send another message');
   assert.deepEqual(await events(c, 'playing'), burst, 'Manual replay must not play on another device');
   await b.evaluate(() => document.querySelectorAll('audio').forEach(audio => audio.pause()));
 
   // Browsers can withdraw autoplay permission. Preserve the head and every
-  // later item so one explicit enable click resumes the complete pending queue.
+  // later item so an ordinary page click resumes the complete pending queue.
   await b.evaluate(() => { window.blockBroadcast = true; });
   const retryBatch = [await seed(VOICE_CLIPS.slow.text), await seed(VOICE_CLIPS.hurry.text)];
   await message(b, retryBatch[1].id).waitFor();
   await waitUntil(async () => (await b.evaluate(() => window.broadcastAttempts)).some(item => item.requestId === retryBatch[0].requestId), 'Blocked head must reach the media player');
   assert.deepEqual(await events(b, 'playing'), burst, 'Denied playback must not skip ahead or pretend it played');
   await b.evaluate(() => { window.blockBroadcast = false; });
-  await b.locator('#chat-enable-sound').click();
+  await b.locator('#chat-name').click();
   await finished(b, retryBatch.map(item => item.requestId));
-  assert.deepEqual(await events(b, 'playing'), [...burst, ...retryBatch.map(item => item.requestId)], 'Enable must resume the blocked head and following clips in order');
+  assert.deepEqual(await events(b, 'playing'), [...burst, ...retryBatch.map(item => item.requestId)], 'A normal click must resume the blocked head and following clips in order');
+
+  // On phones a tap dispatches touch events followed by click. The generic
+  // gesture handler must not start this blocked bubble before its own click
+  // handler runs, or that click would immediately pause the new playback.
+  await b.evaluate(() => { window.blockBroadcast = true; });
+  const touchRetry = await seed(VOICE_CLIPS.slow.text);
+  await message(b, touchRetry.id).waitFor();
+  await waitUntil(async () => (await b.evaluate(() => window.broadcastAttempts)).some(item => item.requestId === touchRetry.requestId), 'Tap retry fixture must first be blocked');
+  await b.evaluate(() => { window.blockBroadcast = false; });
+  await message(b, touchRetry.id).locator('.chat-voice-play').tap();
+  await finished(b, [touchRetry.requestId]);
+  assert.deepEqual(await events(b, 'playing'), [...burst, ...retryBatch.map(item => item.requestId), touchRetry.requestId],
+    'Tapping a blocked voice must play it once to completion without immediately pausing');
 
   await b.reload();
-  await message(b, retryBatch[1].id).waitFor();
+  await message(b, touchRetry.id).waitFor();
   assert.deepEqual(await events(b, 'playing'), [], 'Reloading must not broadcast stored voice history');
-  assert.deepEqual(await b.evaluate(() => window.broadcastAttempts), [], 'Even a remembered preference must not enqueue old recordings');
+  assert.deepEqual(await b.evaluate(() => window.broadcastAttempts.filter(item => item.requestId)), [], 'Even a remembered preference must not enqueue old recordings');
 
-  // Enabling while listening to a historical recording must still grant the
-  // shared player permission in the same gesture instead of waiting for it.
+  // A blocked incoming voice is already queued when the first gesture starts
+  // a historical recording. Its shared-player authorization must survive the
+  // manual playback and drain the queue without any second gesture afterward.
+  const waitingBehindHistory = await seed(VOICE_CLIPS.slow.text);
+  await message(b, waitingBehindHistory.id).waitFor();
+  await waitUntil(async () => (await b.evaluate(() => window.broadcastAttempts)).some(item => item.requestId === waitingBehindHistory.requestId),
+    'An incoming voice must be waiting for permission before replaying history');
+  assert.deepEqual(await events(b, 'playing'), []);
   const historicalReplay = message(b, retryBatch[1].id);
+  await historicalReplay.locator('audio').evaluate(audio => { audio.playbackRate = 0.5; });
   await historicalReplay.locator('.chat-voice-play').click();
   await b.waitForFunction(id => {
     const audio = document.querySelector(`.chat-message[data-message-id="${id}"] audio`);
     return !audio.paused && audio.currentTime > 0.05;
   }, retryBatch[1].id);
-  await b.locator('#chat-enable-sound').click();
-  await b.waitForFunction(() => document.querySelector('#chat-enable-sound').disabled);
-  assert.equal(await historicalReplay.locator('audio').evaluate(audio => audio.paused), true,
-    'Enabling sound should pause the manual recording before authorizing incoming audio');
+  assert.deepEqual(await events(b, 'playing'), [], 'The pending incoming voice must wait until manual history replay finishes');
+  await b.waitForFunction(id => document.querySelector(`.chat-message[data-message-id="${id}"] audio`).ended, retryBatch[1].id);
+  await finished(b, [waitingBehindHistory.requestId]);
+  assert.deepEqual(await events(b, 'playing'), [waitingBehindHistory.requestId], 'Pending voice must play once after history, without another gesture');
+  await b.evaluate(() => { window.broadcastEvents = []; });
 
   // The pause control on an automatically playing bubble must pause the shared
   // audio and hold its position across polls, focus changes, and later arrivals.
+  // No additional gesture follows manual replay: its first click must already
+  // have authorized the shared element for this next incoming recording.
   const afterReload = await seed(VOICE_CLIPS.hurry.text);
   await message(b, afterReload.id).waitFor();
   await b.waitForFunction(id => {
@@ -232,12 +281,14 @@ try {
     return audio.currentTime;
   });
   assert.ok(pausedPosition > 0.05);
+  await b.locator('#chat-name').click();
+  await b.locator('#chat-name').press('ArrowRight');
   await b.evaluate(() => window.dispatchEvent(new Event('focus')));
   const behindPause = await seed(VOICE_CLIPS.slow.text);
   await message(b, behindPause.id).waitFor();
   await delay(250);
   const heldPosition = await b.locator('#chat-broadcast-audio').evaluate(audio => ({ paused: audio.paused, position: audio.currentTime }));
-  assert.equal(heldPosition.paused, true, 'Polling and a new message must respect explicit pause');
+  assert.equal(heldPosition.paused, true, 'Ordinary gestures, polling, and a new message must respect explicit pause');
   assert.ok(Math.abs(heldPosition.position - pausedPosition) < 0.03, 'Explicit pause must retain the playback position');
   assert.deepEqual(await events(b, 'playing'), [afterReload.requestId]);
   await automaticButton.click();
@@ -251,12 +302,13 @@ try {
   assert.equal(await message(b, afterReload.id).locator('audio').evaluate(audio => audio.currentTime), 0,
     'Pause/resume must reuse the shared player, not start an overlapping bubble player');
   assert.equal(writes.length, writeCount, 'Playback controls must not send duplicate voice messages');
-  assert.ok(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Sound enable controls must fit a phone');
+  assert.ok(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Voice controls must fit a phone');
   await b.screenshot({ path: 'artifacts/broadcast-mobile.png', fullPage: true });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ independentDevices: true, sharedSenderTab: true, realAudioFIFO: burst.length,
     noDuplicateAcknowledgement: true, blockedQueueResumed: true, historySilent: true, manualReplayLocal: true,
-    enableDuringManualReplay: true, pauseResumeWithoutRestart: true, mobileFits: true }));
+    autoplayBeforeInteraction: true, touchAndKeyUnlock: true, noEnableButton: true,
+    blockedBubbleTap: true, pendingVoiceAfterHistory: true, ordinaryGestureKeepsManualReplay: true, pauseResumeWithoutRestart: true, mobileFits: true }));
 } finally {
   closing = true;
   for (const blocked of readGates.values()) blocked.release();

@@ -119,7 +119,7 @@ try {
   for (const page of [a, b]) {
     await message(page, seeded[1].id).waitFor();
     assert.equal(await page.locator('.chat-voice-play').count(), 2, 'Stored voice markers must render as replayable voice messages');
-    assert.deepEqual(await page.evaluate(() => window.voicePlayCalls), [], 'Opening history must not automatically play it');
+    assert.deepEqual(await page.evaluate(() => window.voicePlayCalls.filter(call => call.voice)), [], 'Opening history must not automatically play it');
   }
 
   const durations = {};
@@ -166,7 +166,7 @@ try {
   await message(b, rows.at(-1).id).waitFor();
   assert.equal(await b.locator('.chat-message').count(), 5);
   assert.equal(await b.locator('.chat-voice-play').count(), 4);
-  assert.deepEqual(await b.evaluate(() => window.voicePlayCalls), [], 'Reopening voice history must remain silent');
+  assert.deepEqual(await b.evaluate(() => window.voicePlayCalls.filter(call => call.voice)), [], 'Reopening voice history must remain silent');
 
   // A browser denying autoplay must still offer a usable manual play button.
   await pauseAudio(b);
